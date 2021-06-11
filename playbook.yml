@@ -1,0 +1,58 @@
+- hosts: all
+  gather_facts: no
+  become: yes
+  vars:
+    data_disk_device: /dev/vdb
+  tasks:
+    #
+    # intialize the data disk.
+    # NB to re-test this block use following commands to wipe/delete
+    #    all the filesystems and partitions/labels:
+    #       umount /data; wipefs --all $(ls -1 /dev/vdb* | grep -E '[0-9]+$') /dev/vdb; sed -i -E '/^\/dev\/vdb.+/d' /etc/fstab
+
+    - name: Intialize the data disk
+      block:
+        - name: Partition the data disk
+          community.general.parted:
+            device: '{{ data_disk_device }}'
+            number: 1
+            label: gpt
+            name: data
+            state: present
+        - name: Create the data filesystem
+          community.general.filesystem:
+            dev: '{{ data_disk_device }}1'
+            fstype: ext4
+            opts: -L data
+        - name: Mount the data filesystem
+          ansible.posix.mount:
+            src: '{{ data_disk_device }}1'
+            path: /data
+            fstype: ext4
+            opts: defaults,nodev
+            state: mounted
+
+    - name: Get summary
+      args:
+        executable: /bin/bash
+      shell: |
+        exec 2>&1
+
+        function title {
+          echo
+          echo '#'
+          echo "# $*"
+          echo '#'
+          echo
+        }
+
+        title data disk device
+        lsblk -x KNAME -o KNAME,SIZE,TRAN,SUBSYSTEMS,FSTYPE,UUID,LABEL,MODEL,SERIAL {{ data_disk_device }}
+
+        title data disk partitions
+        parted {{ data_disk_device }} print
+      register: summary
+      changed_when: false
+    - name: Show summary
+      debug:
+        var: summary.stdout
